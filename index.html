@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dapur Nenek Sri</title>
+    <!-- Dikembangkan dari project Candy Crush HTML/CSS/JS (github.com/he-is-talha) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" charset="utf-8"></script>
+  </head>
+  <body>
+    <div id="app">
+
+      <!-- Menu Utama -->
+      <section id="home" class="screen active">
+        <div class="awning"></div>
+        <div id="floaters" class="floaters"></div>
+        <div class="home-card receipt">
+          <div class="sign">
+            <small>Warung</small>
+            <h1>Dapur Nenek Sri</h1>
+          </div>
+          <p class="tagline">Warung warisan nenek hampir tutup sejak Resto Megah buka di seberang jalan. Masak menu demi menu dan kembalikan kejayaannya!</p>
+          <div class="home-row">
+            <div class="coin-pill">🪙 <b id="homeCoins">0</b> koin</div>
+            <button id="btnShopHome" class="btn green small">🛒 Toko Bumbu</button>
+          </div>
+          <div class="dash"></div>
+          <button id="btnStory" class="btn primary big">📖 Mode Cerita</button>
+          <button id="btnEndless" class="btn secondary big">⏱️ Mode Endless</button>
+          <div class="hs-box">
+            <span>High Score Endless :</span>
+            <b id="homeHigh">0</b>
+          </div>
+          <p id="storageWarn" class="storage-warn" hidden></p>
+          <div class="dash"></div>
+          <div class="home-tools">
+            <button id="btnSettings" class="btn ghost small">⚙️ Pengaturan</button>
+            <button id="btnHowTo" class="btn ghost small">📖 Cara Bermain</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Buku Resep -->
+      <section id="map" class="screen">
+        <div class="map-wrap">
+          <div class="map-head">
+            <button class="btn ghost small mh-menu" data-go="home">← Menu</button>
+            <div class="mh-title">
+              <small>STRUK RESEP</small>
+              <h2 class="page-title">Buku Resep Nenek</h2>
+            </div>
+            <div class="mh-right">
+              <div class="rank"><b id="rankTitle"></b><span>⭐ <span id="totalStars">0</span>/30 · 🪙 <span id="mapCoins">0</span></span></div>
+              <button id="btnShopMap" class="btn green small">🛒 Toko Bumbu</button>
+            </div>
+          </div>
+          <div id="recipeList"></div>
+        </div>
+      </section>
+
+      <!-- Toko -->
+      <section id="shop" class="screen">
+        <div class="map-wrap">
+          <div class="map-head">
+            <button id="btnShopBack" class="btn ghost small mh-menu">← Kembali</button>
+            <div class="mh-title">
+              <small>STRUK BELANJA</small>
+              <h2 class="page-title">Toko Bumbu</h2>
+            </div>
+            <div class="mh-right">
+              <div class="rank"><b>Koin kamu</b><span>🪙 <span id="shopCoins">0</span></span></div>
+            </div>
+          </div>
+          <p class="sub shop-note">Power-up terbatas: beli di sini, lalu pakai dari bar di bawah papan saat memasak. Stok maksimal 9 per item.</p>
+          <div id="shopList" class="shop-list"></div>
+          <div class="info-card">
+            <h3>Cara mendapat koin</h3>
+            <p>Koin didapat setiap kali resep berhasil dimasak atau permainan Endless berakhir, sesuai skor akhir:</p>
+            <table id="tierTable" class="tier-table"></table>
+          </div>
+          <div class="info-card">
+            <h3>Power-up gratis dari match</h3>
+            <div id="legend" class="legend"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Dialog cerita / pesanan -->
+      <section id="dialog" class="screen">
+        <div class="dialog-card">
+          <div id="dlgAvatar" class="avatar"></div>
+          <div id="dlgName" class="dlg-name"></div>
+          <div id="dlgTier"></div>
+          <div class="bubble"><p id="dlgText"></p></div>
+          <div id="dlgOrder" class="order"></div>
+          <button id="btnDlgGo" class="btn primary big"></button>
+          <button id="btnDlgBack" class="btn ghost small">Kembali</button>
+        </div>
+      </section>
+
+      <!-- Permainan -->
+      <section id="game" class="screen">
+        <aside class="hud">
+          <div class="hud-top">
+            <button id="btnQuit" class="btn danger small">← Keluar</button>
+            <button id="btnGameSettings" class="btn ghost small" title="Pengaturan">⚙️</button>
+            <button id="btnPause" class="btn secondary small">⏸ Jeda</button>
+          </div>
+          <div id="hudTitle" class="hud-title"></div>
+          <div class="hud-stats">
+            <div class="stat"><span>Skor</span><b id="score">0</b></div>
+            <div class="stat badge" id="statMoves"><span>Langkah</span><b id="moves">0</b></div>
+            <div class="stat" id="statHigh"><span>Rekor</span><b id="high">0</b></div>
+          </div>
+          <div id="goals" class="goals"></div>
+          <div id="timeWrap" class="time-wrap"><div id="timeBar"></div><span id="timeText"></span></div>
+          <p id="hudNote" class="hud-note"></p>
+        </aside>
+        <div class="board-wrap">
+          <div id="coach" class="coach" hidden>
+            <div class="coach-ava">👵</div>
+            <div class="coach-body">
+              <b>Nenek Sri</b>
+              <p id="coachText"></p>
+              <div class="coach-btns">
+                <button id="coachNext" class="btn green small">Lanjut</button>
+                <button id="coachSkip" class="btn ghost small">Lewati tutorial</button>
+              </div>
+            </div>
+          </div>
+          <div id="board" class="board">
+            <div id="layer" class="layer"></div>
+            <div id="fx" class="fx"><div id="cursor" class="cursor"></div><div id="finger" class="finger"></div></div>
+            <div id="toast" class="toast"></div>
+            <div id="pausePanel" class="pause-panel">
+              <div class="pause-card">
+                <div class="pause-ico">⏸</div>
+                <h3>Permainan Dijeda</h3>
+                <p>Waktu berhenti sementara. Bahan-bahan menunggumu!</p>
+                <button id="btnResume" class="btn green">▶ Lanjut</button>
+                <button id="btnPauseQuit" class="btn danger small">← Keluar</button>
+              </div>
+            </div>
+          </div>
+          <div id="boosters" class="boosters"></div>
+        </div>
+      </section>
+
+      <!-- Hasil -->
+      <div id="result" class="overlay">
+        <div class="result-card">
+          <div id="resIcon" class="res-icon"></div>
+          <h2 id="resTitle"></h2>
+          <div id="resStars" class="stars"></div>
+          <p id="resText"></p>
+          <p id="resNote" class="res-note"></p>
+          <div id="resScoreBox" class="score-box"></div>
+          <p id="resCoins" class="res-coins"></p>
+          <div class="res-actions">
+            <button id="resPrimary" class="btn primary"></button>
+            <button id="resSecondary" class="btn secondary"></button>
+          </div>
+          <button id="resTertiary" class="btn ghost small res-back"></button>
+        </div>
+      </div>
+
+      <!-- Modal umum (konfirmasi & error) -->
+      <div id="modal" class="overlay">
+        <div class="result-card">
+          <div id="mIcon" class="res-icon"></div>
+          <h2 id="mTitle"></h2>
+          <p id="mText"></p>
+          <div id="mActions" class="res-actions"></div>
+        </div>
+      </div>
+
+      <!-- Pengaturan -->
+      <div id="settings" class="overlay">
+        <div class="result-card settings-card">
+          <h2>⚙️ Pengaturan</h2>
+          <div class="set-row">
+            <label for="setMusic">🎵 Volume musik</label>
+            <input type="range" id="setMusic" min="0" max="100" step="5">
+            <span id="setMusicVal" class="set-val"></span>
+          </div>
+          <div class="set-row">
+            <label for="setSfx">🔊 Volume efek suara</label>
+            <input type="range" id="setSfx" min="0" max="100" step="5">
+            <span id="setSfxVal" class="set-val"></span>
+          </div>
+          <div class="set-row">
+            <span>⚡ Kecepatan animasi</span>
+            <div class="seg" id="setSpeed">
+              <button data-fast="0">Normal</button><button data-fast="1">Cepat</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span>💡 Petunjuk otomatis</span>
+            <button class="switch" id="setHints" role="switch" aria-label="Petunjuk otomatis"></button>
+          </div>
+          <div class="set-row">
+            <span>📳 Getaran layar</span>
+            <button class="switch" id="setShake" role="switch" aria-label="Getaran layar"></button>
+          </div>
+          <div class="set-row" id="rowFull">
+            <span>🖥️ Layar penuh <small>(F11)</small></span>
+            <button class="switch" id="setFull" role="switch" aria-label="Layar penuh"></button>
+          </div>
+          <div class="set-actions">
+            <button id="setHowTo" class="btn secondary small">📖 Cara Bermain</button>
+            <button id="setReset" class="btn ghost small danger-text">🗑️ Reset Progres</button>
+          </div>
+          <button id="setClose" class="btn primary">Selesai</button>
+        </div>
+      </div>
+
+      <!-- Cara Bermain -->
+      <div id="howto" class="overlay">
+        <div class="result-card howto-card">
+          <div class="howto-head"><small>CARA BERMAIN</small><span id="howStep"></span></div>
+          <div id="howSlide" class="how-slide"></div>
+          <div id="howDots" class="how-dots"></div>
+          <div class="res-actions">
+            <button id="howPrev" class="btn secondary small">← Sebelumnya</button>
+            <button id="howNext" class="btn primary small">Berikutnya →</button>
+          </div>
+          <button id="howClose" class="btn ghost small">Tutup</button>
+        </div>
+      </div>
+
+      <div id="notice" class="notice"></div>
+    </div>
+  </body>
+</html>
