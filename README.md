@@ -5,7 +5,7 @@
 > Proyek Evaluasi Tengah Semester (ETS) mata kuliah TPG, semester 5
 > **Nabila Shafa Rahayu** (5025241150) · Teknik Informatika, Institut Teknologi Sepuluh Nopember
 
-🎮 **Mainkan versi web:** _(tautan Vercel)_
+🎮 **Mainkan versi web:** [Dapur Nenek Sri](https://dapur-nenek-sri-game-project.vercel.app/)
 
 ---
 
