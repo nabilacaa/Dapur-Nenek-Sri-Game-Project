@@ -298,4 +298,4 @@ Gambar bahan, power-up, dan penghalang dibuat sebagai **SVG** di dalam `script.j
 - **Desain dan pengembangan:** Nabila Shafa Rahayu (5025241150)
 - **Prototipe awal:** proyek Candy Crush HTML/CSS/JS oleh [he-is-talha](https://github.com/he-is-talha)
 - **Font:** [Fredoka](https://fonts.google.com/specimen/Fredoka) dan [Nunito](https://fonts.google.com/specimen/Nunito), SIL Open Font License
-- **Musik menu:** _(sumber lagu)_
+- **Musik menu:** [Cute Baking by Acoustic Girl](https://youtu.be/rXZa6_2Lb24?si=AhZpdPfGV6a6m20k)
