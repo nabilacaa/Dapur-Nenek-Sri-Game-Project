@@ -209,7 +209,12 @@ function DapurNenek() {
         [POT]: { name: "Panci Api", made: "Match 6", what: "Ledakan 4×4", fire: "Panci api! 🔥" },
         [GOLD]: { name: "Sutil Emas Nenek", made: "Match 7+", what: "Bersihkan seluruh papan", fire: "Sutil Emas Nenek! ✨" },
     };
-    const nameOf = k => (k == SECRET ? "Resep Rahasia" : ING[k].name);
+    const nameOf = k => {
+        if (k == SECRET) return recipe && recipe.order ? "Kardus kiriman" : "Resep Rahasia";
+        if (k === "combo") return `Kombo ×${recipe ? recipe.comboTarget : ""}`;
+        if (String(k).startsWith("make")) return "Buat " + SPECIAL_INFO[+String(k).slice(4)].name;
+        return ING[k].name;
+    };
 
     (function injectIconCss() {
         const css = Object.entries(ICONS).map(([k, body]) => {
@@ -221,6 +226,7 @@ function DapurNenek() {
         document.head.appendChild(st);
     })();
     const ico = v => `<i class="ico t-${v}"></i>`;
+    const goalIcon = k => k === "combo" ? `<span class="gico">🔥</span>` : String(k).startsWith("make") ? ico(+String(k).slice(4)) : ico(k);
 
     // =====================================================================
     // CERITA & 10 RESEP
@@ -326,8 +332,8 @@ function DapurNenek() {
     // PENYIMPANAN (dengan fallback memori & validasi data)
     // =====================================================================
     const PREFIX = "dapurNenek.";
-    const PROGRESS_KEYS = ["stars", "high", "coins", "inv", "prologue", "tutorial", "seen"];
-    const KEY_LABEL = { stars: "bintang & resep", high: "rekor Endless", coins: "koin", inv: "power-up", prologue: "status cerita", tutorial: "status tutorial", seen: "kartu mekanik" };
+    const PROGRESS_KEYS = ["stars", "high", "coins", "inv", "prologue", "tutorial", "seen", "orderState"];
+    const KEY_LABEL = { stars: "bintang & resep", high: "rekor Endless", coins: "koin", inv: "power-up", prologue: "status cerita", tutorial: "status tutorial", seen: "kartu mekanik", orderState: "pesanan online" };
     const store = {
         mem: {},
         persistent: (() => {
@@ -383,17 +389,21 @@ function DapurNenek() {
     };
 
     // ---------- Pengaturan (tidak ikut terhapus saat reset progres) ----------
-    const DEFAULT_SETTINGS = { music: 0.7, sfx: 0.8, fast: false, hints: true, shake: true };
+    const DEFAULT_SETTINGS = { music: 0.7, sfx: 0.8, fast: false, hints: true, shake: true, font: 1 };
+    const FONT_SCALES = [0.9, 1, 1.15, 1.3];
     function loadSettings() {
         const raw = store.get("settings", null);
         const o = raw && typeof raw === "object" ? raw : {};
         const st = { ...DEFAULT_SETTINGS };
         ["music", "sfx"].forEach(k => { const n = Number(o[k]); if (Number.isFinite(n)) st[k] = Math.min(1, Math.max(0, n)); });
         ["fast", "hints", "shake"].forEach(k => { if (typeof o[k] === "boolean") st[k] = o[k]; });
+        if (FONT_SCALES.includes(Number(o.font))) st.font = Number(o.font);
         if (raw === null && store.get("muted", false) === true) { st.music = 0; st.sfx = 0; } // migrasi tombol Suara lama
         return st;
     }
     let settings = loadSettings();
+    const applyFontScale = () => { document.documentElement.style.setProperty("--fs", settings.font); document.documentElement.dataset.fs = settings.font >= 1.15 ? "big" : "normal"; };
+    applyFontScale();
     // Durasi animasi mengikuti pengaturan kecepatan
     const A = ms => Math.round(ms * (settings.fast ? 0.6 : 1));
 
@@ -403,6 +413,9 @@ function DapurNenek() {
     let board = new Array(N).fill(null); // { v, el, ic, hp }
     let mode = null;                      // "story" | "endless"
     let recipeIdx = 0, recipe = null;
+    // Konteks level: {kind:"story", idx} atau {kind:"order", ...} untuk mode Pesan Antar
+    let levelCtx = { kind: "story" };
+    let goalTotals = {}, forbidCount = 0, roundIdx = 0;
     let goalsLeft = {};
     let movesLeft = 0, movesUsed = 0;
     let score = 0, high = 0, newRecord = false;
@@ -672,9 +685,11 @@ function DapurNenek() {
             $("moves").textContent = movesLeft;
             $("statMoves").classList.toggle("warn", movesLeft <= 5);
             $("goals").innerHTML = Object.entries(goalsLeft).map(([k, v]) => {
-                const total = recipe.goals[k], pct = Math.min(100, (total - Math.max(v, 0)) / total * 100);
-                return `<div class="goal${v <= 0 ? " done" : ""}" data-k="${k}" title="${nameOf(k)}">${ico(k)}<b>${v <= 0 ? "✓" : v}</b><span class="prog" style="width:${pct}%"></span></div>`;
-            }).join("");
+                const total = goalTotals[k] || 1, pct = Math.min(100, (total - Math.max(v, 0)) / total * 100);
+                const shown = v <= 0 ? "✓" : k === "combo" ? `×${recipe.comboTarget}` : v;
+                return `<div class="goal${v <= 0 ? " done" : ""}" data-k="${k}" title="${nameOf(k)}">${goalIcon(k)}<b>${shown}</b><span class="prog" style="width:${pct}%"></span></div>`;
+            }).join("") + (recipe && recipe.forbid
+                ? `<div class="goal forbid${forbidCount > recipe.forbid.max ? " over" : ""}" title="Maksimal ${recipe.forbid.max} ${ING[recipe.forbid.type].name}">${ico(recipe.forbid.type)}<b>${forbidCount}/${recipe.forbid.max}</b><span class="no">🚫</span></div>` : "");
         } else {
             $("high").textContent = high;
         }
@@ -864,6 +879,7 @@ function DapurNenek() {
             } else if (isIng(v)) {
                 n++;
                 if (mode === "story" && goalsLeft[v] > 0) goalsLeft[v]--;
+                if (mode === "story" && recipe && recipe.forbid && v === recipe.forbid.type) forbidCount++;
             } else if (v === ROTTEN) n += 2;
             else if (isSpecial(v)) n += 2;
 
@@ -950,6 +966,8 @@ function DapurNenek() {
                 if (pos === undefined) { const longest = g.runs.reduce((a, b) => b.length > a.length ? b : a); pos = longest[Math.floor(longest.length / 2)]; }
                 spawns.set(pos, type);
             });
+            spawns.forEach(t => { const k = "make" + t; if (goalsLeft[k] > 0) goalsLeft[k]--; });
+            if (goalsLeft.combo > 0 && combo >= (recipe ? recipe.comboTarget : 99)) { goalsLeft.combo = 0; toast(`Kombo ×${combo} tercapai! 🔥`, 1100); }
 
             // penghalang di sebelah match ikut kena (busuk hancur, kardus retak)
             const extra = [];
@@ -1128,10 +1146,20 @@ function DapurNenek() {
 
     async function afterMove(s, usedMove) {
         if (mode === "story") {
-            if (Object.values(goalsLeft).every(v => v <= 0)) { busy = false; return winRecipe(); }
+            if (recipe.forbid && forbidCount > recipe.forbid.max) { busy = false; return loseRecipe("forbid"); }
+            if (Object.values(goalsLeft).every(v => v <= 0)) {
+                if (recipe.rounds && roundIdx < recipe.rounds.length - 1) {
+                    roundIdx++;
+                    setGoals(recipe.rounds[roundIdx]);
+                    updateHud();
+                    sfx.special();
+                    toast(`Tahap ${roundIdx + 1} dikirim! 🛵`, 1400);
+                } else { busy = false; return winRecipe(); }
+            }
             if (movesLeft <= 0) { busy = false; return loseRecipe("moves"); }
             if (timed && timeLeft <= 0) { busy = false; return loseRecipe("time"); }
-            if (usedMove && recipe.boss && movesUsed % 4 === 0) {
+            const rotEvery = recipe.rottenEvery || (recipe.boss ? 4 : 0);
+            if (usedMove && rotEvery && movesUsed % rotEvery === 0) {
                 if (!await spawnRotten(2, s)) return;
             }
         }
@@ -1388,6 +1416,7 @@ function DapurNenek() {
             $("homeCoins").textContent = getCoins();
         }
         if (id === "map") renderMap();
+        if (id === "home" || id === "map") { refreshPhoneBadges(); announceNewContacts(); }
         if (id === "shop") renderShop();
     }
 
@@ -1419,7 +1448,7 @@ function DapurNenek() {
             const extra = `<span>👣${rc.moves}</span>` + (rc.time ? `<span>⏱️${rc.time}s</span>` : "");
             card.innerHTML =
                 `<span class="rc-dish">${unlocked ? rc.dish : "🔒"}</span>` +
-                `<span class="rc-info"><b>${i + 1}. ${unlocked ? rc.name : "???"} ${tierBadge(rc.tier)}</b>` +
+                `<span class="rc-info"><b>${i + 1}. ${unlocked ? rc.name : "???"} ${unlocked ? tierBadge(rc.tier) : ""}</b>` +
                 `<small>${unlocked ? rc.customer + (rc.boss ? " · BOS" : "") : "Selesaikan resep sebelumnya"}</small>` +
                 (unlocked ? `<span class="rc-goals">${goals}${extra}</span>` : "") + `</span>` +
                 `<span class="rc-stars">${starHtml(stars[i])}</span>`;
@@ -1514,15 +1543,38 @@ function DapurNenek() {
         $("btnPause").style.display = hasTime ? "" : "none";
     }
 
+    function setGoals(g) { goalsLeft = { ...g }; goalTotals = { ...g }; }
+
+    // Memulai level dari definisi apa pun (resep cerita atau pesanan online)
+    function startLevel(rc, ctx) {
+        levelCtx = ctx;
+        recipe = rc;
+        if (ctx.kind === "story") recipeIdx = ctx.idx;
+        roundIdx = 0; forbidCount = 0;
+        setGoals(rc.rounds ? rc.rounds[0] : rc.goals);
+        movesLeft = rc.moves;
+        const introMs = resetGame("story", rc.boxes || 0);
+        if (rc.rottenStart) seedRotten(rc.rottenStart);
+        layoutHud(true, !!rc.time);
+        if (rc.time) startTimer(rc.time, false);
+        updateHud();
+        return introMs;
+    }
+    // Bahan busuk sejak awal (sabotase Chef Bram di pesanan)
+    function seedRotten(n) {
+        const pool = [];
+        for (let i = 2 * W; i < N; i++) if (isIng(val(i))) pool.push(i);
+        for (let k = 0; k < n && pool.length; k++) {
+            const i = pool.splice(rnd(pool.length), 1)[0];
+            setValue(board[i], ROTTEN);
+            if (!findHint()) setValue(board[i], rnd(ING.length));
+        }
+    }
+
     function startRecipe(i) {
-        recipeIdx = i; recipe = RECIPES[i];
-        goalsLeft = { ...recipe.goals };
-        movesLeft = recipe.moves;
-        const introMs = resetGame("story", recipe.boxes || 0);
+        const introMs = startLevel(RECIPES[i], { kind: "story", idx: i });
         const s0 = session;
         if (i === 0 && !store.get("tutorial", false)) setTimeout(() => { if (alive(s0) && !ended) tutStart(); }, introMs + 80);
-        layoutHud(true, !!recipe.time);
-        if (recipe.time) startTimer(recipe.time, false);
         $("hudTitle").innerHTML = `${recipe.dish} ${recipe.name} ${tierBadge(recipe.tier)}`;
         $("hudNote").innerHTML = recipe.tier === "hard"
             ? `Pecahkan ${ico(BOX)} kardus (2 kali kena) untuk mengeluarkan ${ico(SECRET)} resep rahasia.`
@@ -1533,6 +1585,7 @@ function DapurNenek() {
     }
 
     function startEndless() {
+        levelCtx = { kind: "endless" }; recipe = null;
         resetGame("endless");
         high = getHigh();
         layoutHud(false, true);
@@ -1589,6 +1642,7 @@ function DapurNenek() {
     }
 
     function winRecipe() {
+        if (levelCtx.kind === "order") return winOrder();
         if (ended) return;
         stopGame();
         const base = score;
@@ -1602,6 +1656,7 @@ function DapurNenek() {
         const firstClear = stars[recipeIdx] === 0;
         stars[recipeIdx] = Math.max(stars[recipeIdx], st);
         save("stars", stars);
+        announceNewContacts();
         const coin = awardCoins(score);
         sfx.win();
         const last = recipeIdx === RECIPES.length - 1;
@@ -1619,6 +1674,7 @@ function DapurNenek() {
     }
 
     function loseRecipe(reason) {
+        if (levelCtx.kind === "order") return loseOrder(reason);
         if (ended) return;
         stopGame();
         sfx.lose();
@@ -1638,6 +1694,7 @@ function DapurNenek() {
         stopGame();
         newRecord ? sfx.win() : sfx.lose();
         const coin = awardCoins(score);
+        announceNewContacts();
         showResult({
             icon: newRecord ? "🏆" : "⏱️", title: newRecord ? "High Score Baru!" : "Waktu Habis!",
             text: newRecord ? "Dapur paling sibuk sepanjang sejarah warung!" : "Pelanggan sudah pulang. Coba kalahkan high score-mu!",
@@ -1661,6 +1718,8 @@ function DapurNenek() {
             box.appendChild(e);
         });
     })();
+    // Hiasan ikon bahan di halaman kredit
+    $("crIcons").innerHTML = [NASI, TELUR, CABAI, BAWANG, AYAM, SAYUR].map(ico).join("");
     $("tierTable").innerHTML = COIN_TIERS.slice().reverse().map((t, k, arr) => {
         const nxt = arr[k + 1];
         return `<tr><td>Skor ${t.min}${nxt ? `–${nxt.min - 1}` : "+"}</td><td>🪙 ${t.coins}</td></tr>`;
@@ -1672,7 +1731,7 @@ function DapurNenek() {
     // =====================================================================
     // MUSIK LATAR MENU (file audio/menu.*)
     // =====================================================================
-    const MENU_SCREENS = ["home", "map", "shop", "dialog"];
+    const MENU_SCREENS = ["home", "map", "shop", "dialog", "credits"];
     const BGM_SOURCES = ["audio/menu.mp3", "audio/menu.ogg", "audio/menu.wav", "audio/menu.m4a"];
     const bgmVol = () => 0.5 * settings.music;
     const musicOff = () => settings.music <= 0;
@@ -1730,6 +1789,7 @@ function DapurNenek() {
         $("setSfx").value = Math.round(settings.sfx * 100);
         $("setSfxVal").textContent = Math.round(settings.sfx * 100) + "%";
         document.querySelectorAll("#setSpeed button").forEach(b => b.classList.toggle("on", (b.dataset.fast === "1") === settings.fast));
+        document.querySelectorAll("#setFont button").forEach(b => b.classList.toggle("on", Number(b.dataset.fs) === settings.font));
         const sw = (id, on) => { $(id).classList.toggle("on", on); $(id).setAttribute("aria-checked", on); };
         sw("setHints", settings.hints);
         sw("setShake", settings.shake);
@@ -1753,6 +1813,10 @@ function DapurNenek() {
     $("setMusic").addEventListener("change", saveSettings);
     $("setSfx").addEventListener("input", e => { settings.sfx = e.target.value / 100; $("setSfxVal").textContent = e.target.value + "%"; });
     $("setSfx").addEventListener("change", () => { saveSettings(); sfx.tick(); });
+    $("setFont").addEventListener("click", e => {
+        const b = e.target.closest("button"); if (!b) return;
+        settings.font = Number(b.dataset.fs); applyFontScale(); saveSettings(); renderSettings(); sfx.tick();
+    });
     $("setSpeed").addEventListener("click", e => {
         const b = e.target.closest("button"); if (!b) return;
         settings.fast = b.dataset.fast === "1"; saveSettings(); renderSettings(); sfx.tick();
@@ -1795,6 +1859,8 @@ function DapurNenek() {
           text: "Level ⚡ MEDIUM punya batas waktu. Level 🔥 HARD juga punya kardus: pecahkan 2 kali untuk mengambil kertas resep rahasia. Waspadai juga bahan busuk dari koki saingan." },
         { title: "Mendapat bintang", vis: `<div class="how-vis how-stars">★★★</div>`,
           text: "Menyelesaikan pesanan = 1 bintang. Makin sedikit langkah dan waktu yang kamu pakai, makin banyak bintangnya. Bintang membuka resep berikutnya dan menaikkan gelar warungmu." },
+        { title: "Pesan Antar", vis: icoRow(`<span class="how-big">📱</span>`, arrow, `<span class="how-big">💬</span>`, arrow, `<span class="how-stars" style="font-size:34px">★★★★★</span>`),
+          text: "Setelah Resep 2, HP warung menerima pesanan online. Pilih balasan untuk menentukan tantanganmu, penuhi pesanannya, dan kumpulkan ulasan. Ada juga 3 pesanan harian dengan bonus beruntun." },
         { title: "Mode Endless", vis: icoRow(`<span class="how-big">⏱️</span>`, arrow, `<span class="how-big">🏆</span>`),
           text: "Raih skor setinggi mungkin. Bahan yang dimasak menambah waktu, tetapi salah langkah mengurangi waktu. Setiap 2.000 poin, dapur makin sibuk dan waktu berjalan 10% lebih cepat (maksimal ×1,5)." },
     ];
@@ -1970,6 +2036,679 @@ function DapurNenek() {
     $("coachSkip").addEventListener("click", () => { const wasActive = !!tut; tutEnd(true); if (wasActive && !busy) armHint(); });
 
     // =====================================================================
+    // PESAN ANTAR: pesanan online lewat HP warung
+    // =====================================================================
+    // Definisi tantangan: tier (untuk bintang), goals, moves, opsional time, boxes,
+    // forbid {type,max}, combo (target kombo), rounds (beberapa tahap), rottenEvery, rottenStart
+    const lv = (tier, goals, moves, extra = {}) => ({ tier, goals, moves, ...extra });
+    const withCombo = (goals, n) => ({ goals: { ...goals, combo: 1 }, combo: n });
+
+    const CONTACTS = [
+        {
+            id: "rina", name: "Mbak Rina", avatar: "👩‍🎓", gift: "shuffle",
+            unlock: pr => pr.stars[1] > 0,
+            orders: [
+                {
+                    id: "rina1", dish: "🍛", title: "Nasi Goreng ×3",
+                    intro: ["Kak! Warungnya lagi rame di grup angkatan 😆", "Temen kosku mau nasgor juga, 3 porsi. Bisa nggak?"],
+                    options: [
+                        { key: "A", icon: "⚡", reply: "Siap, kirim cepat!", kind: "Kilat", desc: "50 detik · target kecil", coins: 40, after: "Asiik! Ditunggu ya kak 🙏",
+                          level: lv("medium", { [NASI]: 8, [TELUR]: 5, [CABAI]: 5 }, 15, { time: 50 }) },
+                        { key: "B", icon: "📦", reply: "Bisa, tapi porsi jumbo ya", kind: "Borongan", desc: "Target besar · tanpa batas waktu", coins: 60, after: "Wah boleh banget, makin kenyang! 😋",
+                          level: lv("normal", { [NASI]: 18, [TELUR]: 10, [CABAI]: 10 }, 28) },
+                    ],
+                    win: "Enak bangeet 😭 temen-temen langsung habis!",
+                    reviews: { 3: "Enak, tapi agak lama ya kak.", 4: "Nasgornya mantap, cuma agak lama dikit 😅", 5: "Sempurna! Cepet, enak, pedesnya pas 😍" },
+                },
+                {
+                    id: "rina2", dish: "🍳", title: "Nasi Telur Tanpa Pedas",
+                    intro: ["Kak, temenku yang nggak kuat pedas mau pesen juga!", "Nasi sama telur aja, tapi beneran jangan pedes ya 🥺"],
+                    options: [
+                        { key: "A", icon: "🚫", reply: "Oke, tanpa cabai sama sekali", kind: "Pantangan ketat", desc: "Maks. 5 cabai ikut termasak", coins: 50, after: "Makasih kak, dia pasti seneng 🥹",
+                          level: lv("normal", { [NASI]: 12, [TELUR]: 12 }, 22, { forbid: { type: CABAI, max: 5 } }) },
+                        { key: "B", icon: "🌶️", reply: "Sambalnya dipisah aja ya", kind: "Pantangan ringan", desc: "Maks. 10 cabai · 70 detik", coins: 45, after: "Ide bagus! Biar yang lain bisa nambah sambal 😆",
+                          level: lv("medium", { [NASI]: 12, [TELUR]: 12 }, 20, { time: 70, forbid: { type: CABAI, max: 10 } }) },
+                    ],
+                    win: "Temenku sampai nambah dua kali 😂 makasih kak!",
+                    reviews: { 3: "Enak, tapi kerasa sedikit pedas 😅", 4: "Lembut, nggak pedas, pas buat temenku!", 5: "Persis sesuai pesanan. Warung favorit anak kos! 💯" },
+                },
+            ],
+        },
+        {
+            id: "lurah", name: "Bu Lurah", avatar: "👩", gift: "extra",
+            unlock: pr => pr.stars[2] > 0,
+            orders: [
+                {
+                    id: "lurah1", dish: "🥗", title: "Sayur Asem Arisan",
+                    intro: ["Selamat siang. Arisan bulan ini di rumah saya, tamunya 20 orang.", "Sayur asem yang kemarin enak sekali. Bisa pesan untuk semua?"],
+                    options: [
+                        { key: "A", icon: "📦", reply: "Siap, Bu! Semua beres.", kind: "Borongan", desc: "Target besar · langkah longgar", coins: 60, after: "Baik, saya tunggu ya.",
+                          level: lv("normal", { [SAYUR]: 20, [BAWANG]: 12, [CABAI]: 10 }, 30) },
+                        { key: "B", icon: "💸", reply: "Paket hemat ya, Bu", kind: "Paket hemat", desc: "Target sama · langkah lebih sedikit", coins: 80, after: "Wah, hemat. Ibu-ibu pasti senang.",
+                          level: lv("medium", { [SAYUR]: 20, [BAWANG]: 12, [CABAI]: 10 }, 22) },
+                    ],
+                    win: "Arisannya sukses besar! Semua tanya ini masakan siapa.",
+                    reviews: { 3: "Cukup enak, tapi agak terlambat.", 4: "Segar dan pas porsinya. Terima kasih!", 5: "Luar biasa! Ibu-ibu sampai minta nomor warungnya." },
+                },
+                {
+                    id: "lurah2", dish: "🍱", title: "Jamuan Tamu Kecamatan",
+                    intro: ["Besok ada tamu penting dari kecamatan.", "Saya butuh hidangan ayam dan sayur yang tampilannya cantik. Bisa?"],
+                    options: [
+                        { key: "A", icon: "🍳", reply: "Pakai wajan nenek, Bu", kind: "Wajib alat", desc: "Buat 2 Wajan Panas", coins: 70, after: "Wah, wajan pusaka. Saya percaya.",
+                          level: lv("normal", { [AYAM]: 12, [SAYUR]: 12, make95: 2 }, 24) },
+                        { key: "B", icon: "🥘", reply: "Pakai panci spesial", kind: "Wajib alat", desc: "Buat 1 Panci Api", coins: 80, after: "Panci api? Kedengarannya istimewa!",
+                          level: lv("normal", { [AYAM]: 12, [SAYUR]: 12, make96: 1 }, 24) },
+                    ],
+                    win: "Pak Camat memuji masakannya di depan semua tamu!",
+                    reviews: { 3: "Rasanya enak, tampilannya biasa saja.", 4: "Cantik dan lezat. Tamu-tamu puas.", 5: "Sempurna. Warung ini kebanggaan desa kita!" },
+                },
+            ],
+        },
+        {
+            id: "dimas", name: "Kak Dimas", avatar: "🤳", gift: "salt",
+            unlock: pr => pr.stars.some(x => x >= 3),
+            orders: [
+                {
+                    id: "dimas1", dish: "🎬", title: "Ayam Geprek Viral",
+                    intro: ["Halo kak! Aku Dimas, konten kreator kuliner 👋", "Bikinin ayam geprek yang spektakuler buat kontenku dong!"],
+                    options: [
+                        { key: "A", icon: "🔥", reply: "Siap, kombo beruntun!", kind: "Kombo", desc: "Capai kombo ×3", coins: 60, after: "Mantap, aku siapin kamera! 🎥",
+                          level: lv("normal", { [AYAM]: 12, [CABAI]: 8 }, 22, withCombo({ [AYAM]: 12, [CABAI]: 8 }, 3)) },
+                        { key: "B", icon: "✨", reply: "Pakai senjata rahasia nenek", kind: "Wajib alat", desc: "Buat 1 Wajan + 1 Panci Api", coins: 90, after: "Senjata rahasia?! Penonton pasti heboh 😱",
+                          level: lv("normal", { [AYAM]: 10, make95: 1, make96: 1 }, 26) },
+                    ],
+                    win: "Videonya ditonton 100 ribu kali dalam sehari! 🚀",
+                    reviews: { 3: "Lumayan, tapi kurang 'wow' buat konten.", 4: "Kontennya rame, ayamnya juara!", 5: "Viral! Followers-ku pada nanya alamat warungnya 🔥" },
+                },
+                {
+                    id: "dimas2", dish: "📹", title: "Live Cooking",
+                    intro: ["Kak, aku mau bikin live cooking di warung!", "Ditonton ribuan orang, jadi harus seru dari awal sampai akhir 😆"],
+                    options: [
+                        { key: "A", icon: "⚡", reply: "Gas, live sekarang!", kind: "Kilat + kombo", desc: "55 detik · kombo ×3", coins: 70, after: "LIVE! Halo semuanyaaa 👋",
+                          level: lv("medium", {}, 18, { time: 55, ...withCombo({ [TELUR]: 10, [SAYUR]: 10 }, 3) }) },
+                        { key: "B", icon: "🎞️", reply: "Rekam dulu, upload nanti", kind: "Kombo besar", desc: "Kombo ×4 · tanpa batas waktu", coins: 80, after: "Oke, biar bisa diedit yang keren!",
+                          level: lv("normal", {}, 30, withCombo({ [TELUR]: 10, [SAYUR]: 10 }, 4)) },
+                    ],
+                    win: "Live-nya trending! Kolom komentar penuh pujian 😭",
+                    reviews: { 3: "Seru, walau ada momen sepi.", 4: "Penonton heboh, masakannya juga enak!", 5: "Live terbaikku tahun ini. Kolaborasi lagi ya kak!" },
+                },
+            ],
+        },
+        {
+            id: "ratna", name: "Bu Ratna", avatar: "👩‍💼", gift: "salt",
+            unlock: pr => pr.high >= 5000,
+            orders: [
+                {
+                    id: "ratna1", dish: "🍚", title: "Katering 50 Porsi",
+                    intro: ["Selamat pagi. Kantor saya ada acara besar minggu ini.", "Saya butuh katering nasi uduk 50 porsi. Sanggup?"],
+                    options: [
+                        { key: "A", icon: "📦", reply: "Sanggup, satu kali kirim", kind: "Borongan besar", desc: "Target besar sekaligus", coins: 100, after: "Baik. Saya tunggu tepat waktu.",
+                          level: lv("normal", { [NASI]: 24, [TELUR]: 16, [AYAM]: 16 }, 34) },
+                        { key: "B", icon: "🛵", reply: "Kami kirim dua tahap, Bu", kind: "Dua tahap", desc: "2 ronde target lebih kecil", coins: 90, after: "Dua tahap juga tidak masalah.",
+                          level: lv("normal", {}, 32, { rounds: [{ [NASI]: 12, [TELUR]: 8, [AYAM]: 8 }, { [NASI]: 12, [TELUR]: 8, [AYAM]: 8 }] }) },
+                    ],
+                    win: "Semua karyawan kenyang dan puas. Terima kasih!",
+                    reviews: { 3: "Cukup, tapi ada yang datang terlambat.", 4: "Rapi dan enak. Kantor kami puas.", 5: "Katering terbaik yang pernah kami pesan." },
+                },
+                {
+                    id: "ratna2", dish: "📦", title: "Kotak Makan Rapat",
+                    intro: ["Untuk rapat direksi, bahannya dari supplier langganan saya.", "Bahannya datang dalam kardus. Mau diambil sendiri atau diantar?"],
+                    options: [
+                        { key: "A", icon: "🏃", reply: "Saya ambil sendiri, Bu", kind: "Kiriman supplier", desc: "6 kardus di papan", coins: 80, after: "Silakan, kardusnya sudah siap.",
+                          level: lv("normal", { [NASI]: 10, [SECRET]: 5 }, 26, { boxes: 6 }) },
+                        { key: "B", icon: "🚚", reply: "Minta diantar saja", kind: "Kiriman kilat", desc: "3 kardus · 70 detik", coins: 70, after: "Baik, kurir segera berangkat.",
+                          level: lv("medium", { [NASI]: 10, [SECRET]: 3 }, 20, { boxes: 3, time: 70 }) },
+                    ],
+                    win: "Rapat direksi berjalan lancar. Kotak makannya dipuji!",
+                    reviews: { 3: "Rasanya enak, tapi agak lama.", 4: "Rapi, enak, tepat waktu.", 5: "Direksi minta warung ini jadi katering tetap." },
+                },
+            ],
+        },
+        {
+            id: "bram", name: "Pelanggan Baru", avatar: "🕶️", realName: "Chef Bram", realAvatar: "👨‍🍳", gift: "hammer",
+            unlock: pr => pr.stars[4] > 0,
+            orders: [
+                {
+                    id: "bram1", dish: "🌶️", title: "Sambal Bajak ×2",
+                    intro: ["Halo. Saya mau pesan sambal bajak 2 porsi.", "Bahannya sudah saya siapkan di dapur kalian. Bisa langsung masak?"],
+                    options: [
+                        { key: "A", icon: "✅", reply: "Terima pesanan", kind: "Sabotase", desc: "Papan sudah berisi bahan busuk", coins: 70, after: "Hehe… selamat memasak.",
+                          level: lv("normal", { [CABAI]: 14, [BAWANG]: 10 }, 22, { rottenEvery: 3, rottenStart: 4 }) },
+                        { key: "B", icon: "🤨", reply: "Tanya dulu, ini siapa?", kind: "Duel", desc: "80 detik · hadiah lebih besar", coins: 100, reveal: true, after: "…Ketahuan. Ini Chef Bram. Ayo duel! 😤",
+                          level: lv("medium", { [CABAI]: 16, [BAWANG]: 12 }, 22, { time: 80, rottenEvery: 4 }) },
+                    ],
+                    win: "Hmph. Kamu berhasil juga. Ya, ini aku, Chef Bram 😤",
+                    reviews: { 3: "Lumayan… untuk warung kecil.", 4: "Hmph. Sambalnya boleh juga.", 5: "…Oke, aku akui sambalmu lebih nendang." },
+                },
+                {
+                    id: "bram2", dish: "🔥", title: "Duel Balas Dendam",
+                    intro: ["Kemarin kamu cuma beruntung.", "Ayo duel lagi. Kali ini aku tidak akan menahan diri!"],
+                    options: [
+                        { key: "A", icon: "⚔️", reply: "Tantangan diterima!", kind: "Sabotase berat", desc: "Bahan busuk tiap 3 langkah", coins: 90, after: "Bagus. Bersiaplah!",
+                          level: lv("normal", { [CABAI]: 18, [BAWANG]: 14 }, 24, { rottenEvery: 3 }) },
+                        { key: "B", icon: "⚖️", reply: "Ayo, tapi adil", kind: "Duel adil", desc: "Tiap 4 langkah · 80 detik", coins: 90, after: "Adil? Baiklah, waktu yang menentukan.",
+                          level: lv("medium", { [CABAI]: 18, [BAWANG]: 14 }, 22, { time: 80, rottenEvery: 4 }) },
+                    ],
+                    win: "…Kuakui. Warung Nenek Sri memang hebat. Boleh aku jadi pelanggan tetap?",
+                    reviews: { 3: "Masih bisa lebih baik.", 4: "Kau lawan yang tangguh.", 5: "Mulai hari ini, aku pelanggan setiamu." },
+                },
+            ],
+        },
+    ];
+    const BOOSTER_NAME = id => (BOOSTERS.find(b => b.id === id) || {}).name || id;
+    const contactById = id => CONTACTS.find(c => c.id === id);
+    const findOrder = oid => { for (const c of CONTACTS) { const o = c.orders.find(x => x.id === oid); if (o) return { c, o }; } return null; };
+
+    // ---------- Status pesanan (tersimpan, ikut dihapus saat reset progres) ----------
+    const OS_DEFAULT = () => ({ seen: {}, done: {}, rewarded: {}, revealed: {}, known: [], daily: { date: "", res: [null, null, null] }, dailySum: 0, dailyCount: 0, streak: { last: "", count: 0 } });
+    function getOS() {
+        const o = store.get("orderState", null), d = OS_DEFAULT();
+        if (!o || typeof o !== "object") return d;
+        const obj = x => (x && typeof x === "object" && !Array.isArray(x) ? x : {});
+        const daily = obj(o.daily), streak = obj(o.streak);
+        return {
+            seen: obj(o.seen), done: obj(o.done), rewarded: obj(o.rewarded), revealed: obj(o.revealed),
+            known: Array.isArray(o.known) ? o.known : [],
+            daily: { date: typeof daily.date === "string" ? daily.date : "", res: Array.isArray(daily.res) && daily.res.length === 3 ? daily.res : [null, null, null], prize: daily.prize === true },
+            dailySum: clampInt(o.dailySum, 0, 1e6, 0), dailyCount: clampInt(o.dailyCount, 0, 1e6, 0),
+            streak: { last: typeof streak.last === "string" ? streak.last : "", count: clampInt(streak.count, 0, 7, 0) },
+        };
+    }
+    const saveOS = os => save("orderState", os);
+    const prog = () => ({ stars: getStars(), high: getHigh() });
+    const hpUnlocked = () => getStars()[1] > 0; // HP warung diberikan setelah Resep 2
+    const revealedBram = os => !!(os.revealed.bram || os.done.bram1);
+    const contactName = (c, os) => c.id === "bram" && revealedBram(os) ? c.realName : c.name;
+    const contactAvatar = (c, os) => c.id === "bram" && revealedBram(os) ? c.realAvatar : c.avatar;
+
+    function contactUnlocked(c, pr) { return hpUnlocked() && c.unlock(pr); }
+    // Pesanan yang sudah terlihat di chat: pesanan pertama, lalu berikutnya setelah sebelumnya selesai
+    function visibleOrders(c, os) {
+        const out = [];
+        for (let k = 0; k < c.orders.length; k++) {
+            if (k > 0 && !os.done[c.orders[k - 1].id]) break;
+            out.push(c.orders[k]);
+        }
+        return out;
+    }
+    function activeContacts(os) {
+        const pr = prog();
+        return CONTACTS.filter(c => contactUnlocked(c, pr));
+    }
+    function unreadCount(os) {
+        return activeContacts(os).reduce((n, c) => n + visibleOrders(c, os).filter(o => !os.seen[o.id]).length, 0);
+    }
+    function ratingOf(os) {
+        let sum = os.dailySum, cnt = os.dailyCount;
+        Object.values(os.done).forEach(r => { if (r && r.best) { sum += r.best; cnt++; } });
+        return cnt ? { avg: (sum / cnt).toFixed(1).replace(".", ","), count: cnt } : null;
+    }
+    // Umumkan kontak yang baru muncul (dan HP warung untuk pertama kali)
+    function announceNewContacts() {
+        if (!hpUnlocked()) return;
+        const os = getOS(), pr = prog();
+        const fresh = CONTACTS.filter(c => c.unlock(pr) && !os.known.includes(c.id));
+        if (!fresh.length) return;
+        const first = os.known.length === 0;
+        os.known.push(...fresh.map(c => c.id));
+        saveOS(os);
+        const names = fresh.map(c => contactName(c, os)).join(", ");
+        notify(first ? `📱 Nenek memberimu HP warung! Pesan baru dari ${names} di Pesan Antar.` : `📱 Pesan baru dari ${names}!`, "ok", 4200);
+        refreshPhoneBadges();
+    }
+    function refreshPhoneBadges() {
+        const os0 = getOS();
+        const n = unreadCount(os0) + (hpUnlocked() && os0.streak.last !== dateKey() ? 1 : 0);
+        ["phoneBadgeHome", "phoneBadgeMap"].forEach(id => { const b = $(id); if (!b) return; b.textContent = n; b.hidden = n === 0; });
+        const r = ratingOf(getOS());
+        const mr = $("mapRating");
+        if (mr) { mr.hidden = !hpUnlocked(); mr.textContent = r ? `💬 Ulasan ${r.avg} (${r.count})` : "💬 Belum ada ulasan"; }
+    }
+
+    // ---------- Pesanan harian ----------
+    function dateKey(offset = 0) {
+        const d = new Date(); d.setDate(d.getDate() + offset);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    function seededRand(str) {
+        let h = 1779033703 ^ str.length;
+        for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+        return () => { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+    }
+    const DAILY_CUSTOMERS = [["Pak Darto", "👴"], ["Rombongan ojol", "🛵"], ["Bu Lurah", "👩"], ["Mbak Rina", "👩‍🎓"], ["Mister John", "🧔"], ["Pak Haji Somad", "👳"], ["Bu Ratna", "👩‍💼"]];
+    const DAILY_DISHES = [["Telur dadar", "🍳", TELUR, BAWANG], ["Nasi goreng", "🍛", NASI, TELUR], ["Ayam geprek", "🍗", AYAM, CABAI], ["Sayur asem", "🥗", SAYUR, CABAI], ["Soto ayam", "🍲", AYAM, SAYUR], ["Nasi uduk", "🍚", NASI, AYAM], ["Gado-gado", "🥙", SAYUR, TELUR]];
+    const DAILY_TYPES = {
+        kilat: (a, b) => ({ icon: "⚡", kind: "Kilat", desc: "45 detik", coins: 20, ask: "Cepet ya, laper banget!", level: lv("medium", { [a]: 8, [b]: 6 }, 14, { time: 45 }) }),
+        pantangan: (a, b, f) => ({ icon: "🚫", kind: "Pantangan", desc: `Maks. 10 ${ING[f].name}`, coins: 25, ask: `Tapi ${ING[f].name.toLowerCase()}-nya jangan banyak-banyak ya.`, level: lv("normal", { [a]: 10, [b]: 8 }, 20, { forbid: { type: f, max: 10 } }) }),
+        kombo: (a, b) => ({ icon: "🔥", kind: "Kombo ×3", desc: "Capai kombo ×3", coins: 25, ask: "Masaknya yang heboh ya!", level: lv("normal", {}, 20, withCombo({ [a]: 8, [b]: 6 }, 3)) }),
+        borongan: (a, b) => ({ icon: "📦", kind: "Borongan", desc: "Target besar", coins: 30, ask: "Porsinya banyak, buat sekeluarga!", level: lv("normal", { [a]: 16, [b]: 12 }, 26) }),
+        wajan: (a, b) => ({ icon: "🍳", kind: "Wajib Wajan", desc: "Buat 1 Wajan Panas", coins: 25, ask: "Pakai wajan nenek yang terkenal itu ya!", level: lv("normal", { [a]: 8, [b]: 8, make95: 1 }, 22) }),
+    };
+    function dailyOrders(date) {
+        const r = seededRand("dapur-nenek-" + date);
+        const pick = arr => arr.splice(Math.floor(r() * arr.length), 1)[0];
+        const types = Object.keys(DAILY_TYPES), custs = DAILY_CUSTOMERS.slice(), dishes = DAILY_DISHES.slice();
+        return [0, 1, 2].map(i => {
+            const [cust, avatar] = pick(custs), [dname, dish, a, b] = pick(dishes), t = pick(types);
+            const others = [0, 1, 2, 3, 4, 5].filter(x => x !== a && x !== b);
+            const f = others[Math.floor(r() * others.length)];
+            const porsi = 2 + Math.floor(r() * 4);
+            const spec = DAILY_TYPES[t](a, b, f);
+            return { i, cust, avatar, dish, title: `${dname} ×${porsi}`, msg: `Halo, pesan ${dname.toLowerCase()} ${porsi} porsi ya! ${spec.ask}`, ...spec };
+        });
+    }
+    const STREAK_REWARD = [20, 30, 40, 50, 60, 80, 100];
+    function streakView(os) {
+        const today = dateKey(), y = dateKey(-1);
+        const doneToday = os.streak.last === today;
+        let c = os.streak.last === today || os.streak.last === y ? os.streak.count : 0;
+        if (!doneToday && c >= 7) c = 0;
+        return { c, doneToday, todaySlot: doneToday ? c : c + 1 };
+    }
+    function msToMidnight() { const d = new Date(), m = new Date(d); m.setHours(24, 0, 0, 0); return m - d; }
+
+    // Bonus masuk harian: bisa diambil sekali sehari tanpa syarat
+    function claimDailyBonus() {
+        const os = getOS(), today = dateKey(), y = dateKey(-1);
+        if (os.streak.last === today) return;
+        os.streak.count = os.streak.last === y && os.streak.count < 7 ? os.streak.count + 1 : 1;
+        os.streak.last = today;
+        const r = STREAK_REWARD[os.streak.count - 1];
+        saveOS(os);
+        save("coins", getCoins() + r);
+        sfx.coin();
+        notify(`🔥 Bonus hari ke-${os.streak.count}: +${r} koin!`, "ok");
+        renderList("harian");
+        refreshPhoneBadges();
+    }
+
+    // Hadiah power-up acak (stok penuh dilewati; kalau semua penuh, diganti 50 koin)
+    function pickPrize() {
+        const v = getInv();
+        const pool = BOOSTERS.filter(b => v[b.id] < MAX_STOCK);
+        if (!pool.length) { save("coins", getCoins() + 50); return { id: null }; }
+        const b = pool[rnd(pool.length)];
+        giveBooster(b.id, 1); // langsung disimpan agar tidak hilang walau carousel ditutup
+        return { id: b.id };
+    }
+    function showPrizeSpin(prize) {
+        const strip = $("spinStrip"), ok = $("spinOk"), res = $("spinResult");
+        const ids = BOOSTERS.map(b => b.id);
+        const TARGET = 30;
+        const items = [];
+        for (let k = 0; k < TARGET + 4; k++) items.push(ids[rnd(ids.length)]);
+        if (prize.id) items[TARGET] = prize.id;
+        strip.innerHTML = items.map(id => `<div class="spin-item"><i class="ico t-b-${id}"></i><small>${BOOSTER_NAME(id)}</small></div>`).join("");
+        res.textContent = "";
+        ok.disabled = true;
+        $("spin").classList.add("show");
+        // Posisi tengah dihitung dari elemen sebenarnya agar kotak hadiah pas di bingkai
+        const target = strip.children[TARGET];
+        const centerX = -(target.offsetLeft + target.offsetWidth / 2 - strip.parentElement.clientWidth / 2);
+        // Putaran sedikit kelewatan (atau kurang), lalu kembali ke tengah
+        const miss = (Math.random() < 0.7 ? -1 : 1) * (14 + rnd(22));
+        strip.style.transform = "translateX(0)";
+        const spin = strip.animate([{ transform: "translateX(0)" }, { transform: `translateX(${centerX + miss}px)` }],
+            { duration: 3400, easing: "cubic-bezier(.12,.75,.15,1)", fill: "forwards" });
+        let anim = { onfinish: null };
+        spin.onfinish = () => {
+            const settle = strip.animate([{ transform: `translateX(${centerX + miss}px)` }, { transform: `translateX(${centerX}px)` }],
+                { duration: 450, easing: "cubic-bezier(.3,1.4,.5,1)", fill: "forwards" });
+            settle.onfinish = () => anim.onfinish && anim.onfinish();
+        };
+        // Bunyi "tik" makin jarang seiring putaran melambat
+        let t = 0, gap = 55;
+        (function tick() {
+            if (t > 3300) return;
+            sfx.tick();
+            gap *= 1.09; t += gap;
+            setTimeout(tick, gap);
+        })();
+        anim.onfinish = () => {
+            const items = strip.children;
+            if (prize.id) items[TARGET].classList.add("won");
+            res.innerHTML = prize.id ? `Kamu dapat <b>1 ${BOOSTER_NAME(prize.id)}</b>! 🎉` : "Stok semua power-up penuh, jadi diganti <b>50 koin</b>! 🪙";
+            ok.disabled = false;
+            sfx.win();
+        };
+    }
+    $("spinOk").addEventListener("click", () => { $("spin").classList.remove("show"); renderBoosters(); });
+
+    // ---------- Level dari pesanan ----------
+    function orderLevel({ dish, title, cust }, opt) {
+        const L = opt.level;
+        return {
+            order: true, name: title, dish, customer: cust, tier: L.tier, moves: L.moves, time: L.time, goals: L.goals,
+            rounds: L.rounds, boxes: L.boxes, forbid: L.forbid, comboTarget: L.combo, rottenEvery: L.rottenEvery, rottenStart: L.rottenStart,
+        };
+    }
+    function rulesText(def) {
+        const t = [];
+        if (def.forbid) t.push(`🚫 Jangan masak lebih dari ${def.forbid.max} ${ING[def.forbid.type].name.toLowerCase()} (termasuk yang terkena ledakan).`);
+        Object.keys(def.goals || {}).filter(k => k.startsWith("make")).forEach(k => t.push(`Buat ${def.goals[k]} ${SPECIAL_INFO[+k.slice(4)].name} dari match besar.`));
+        if (def.comboTarget) t.push(`Capai kombo ×${def.comboTarget} dalam satu langkah.`);
+        if (def.rounds) t.push(`Pesanan dikirim ${def.rounds.length} tahap: target berganti setelah tahap pertama selesai.`);
+        if (def.boxes) t.push(`Buka kardus kiriman (2 kali kena) di papan.`);
+        if (def.rottenEvery) t.push(`Bahan busuk muncul setiap ${def.rottenEvery} langkah.`);
+        if (def.time) t.push(`Waktu terus berjalan.`);
+        return t.length ? t.join("<br>") : "Penuhi semua target bahan.";
+    }
+    function goalChips(def) {
+        const g = def.rounds ? def.rounds[0] : def.goals;
+        let html = Object.entries(g).map(([k, v]) => `<span class="pa-chip">${goalIcon(k)}${k === "combo" ? `×${def.comboTarget}` : `×${v}`}</span>`).join("");
+        if (def.forbid) html += `<span class="pa-chip no">${ico(def.forbid.type)}≤${def.forbid.max} 🚫</span>`;
+        return html;
+    }
+    function beginOrder(def, ctx) {
+        const keys = [];
+        if (def.time) keys.push("time");
+        if (def.boxes) keys.push("box");
+        if (def.rottenEvery || def.rottenStart) keys.push("rotten");
+        withMechCards(keys, () => startOrder(def, ctx));
+    }
+    function startOrder(def, ctx) {
+        startLevel(def, ctx);
+        $("hudTitle").innerHTML = `${def.dish} ${def.name} <span class="tier order">📱 PESANAN</span>`;
+        $("hudNote").innerHTML = `Pelanggan: ${def.customer}.<br>${rulesText(def)}`;
+    }
+    function giveBooster(id, n = 1) {
+        const v = getInv();
+        v[id] = Math.min(MAX_STOCK, v[id] + n);
+        save("inv", v); inv = v;
+    }
+
+    // ---------- Hasil pesanan ----------
+    function winOrder() {
+        if (ended) return;
+        stopGame();
+        const ctx = levelCtx, base = score;
+        const bonus = movesLeft * BONUS_PER_MOVE + (timed ? Math.max(0, Math.floor(timeLeft)) * BONUS_PER_SEC : 0);
+        score += bonus;
+        updateHud();
+        const [e2, e3] = STAR_EFFICIENCY[recipe.tier];
+        const eff = efficiencyOf(recipe);
+        const st = 1 + (eff >= e2 ? 1 : 0) + (eff >= e3 ? 1 : 0);
+        const review = st + 2;
+        const os = getOS();
+        let coins = ctx.coins;
+        const notes = [];
+        let winText, comment;
+        let prizeAfterResult = null;
+        if (ctx.daily !== undefined) {
+            const today = dateKey();
+            if (os.daily.date !== today) os.daily = { date: today, res: [null, null, null] };
+            const prev = os.daily.res[ctx.daily];
+            if (prev === null || prev === undefined) { os.daily.res[ctx.daily] = review; os.dailySum += review; os.dailyCount++; }
+            else { coins = Math.round(coins / 2); if (review > prev) { os.dailySum += review - prev; os.daily.res[ctx.daily] = review; } }
+            // Ketiga pesanan harian selesai: 1 power-up acak (sekali per hari)
+            if (os.daily.res.every(x => x) && !os.daily.prize) {
+                os.daily.prize = true;
+                prizeAfterResult = pickPrize();
+                notes.push("🎁 Semua pesanan harian selesai: hadiah power-up acak!");
+            }
+            winText = `“Makasih, pesanannya enak!” — ${ctx.cust}`;
+            comment = ["Lumayan, terima kasih.", "Enak dan cepat!", "Sempurna, langganan deh!"][st - 1];
+        } else {
+            const { c, o } = findOrder(ctx.oid);
+            const rec = os.done[ctx.oid];
+            if (!rec) os.done[ctx.oid] = { best: review, choice: ctx.opt };
+            else { coins = Math.round(coins / 2); if (review > rec.best) { rec.best = review; rec.choice = ctx.opt; } }
+            if (ctx.oid === "bram1") os.revealed.bram = true;
+            if (c.orders.every(x => os.done[x.id]) && !os.rewarded[c.id]) {
+                os.rewarded[c.id] = true;
+                giveBooster(c.gift, 1);
+                notes.push(`⭐ ${contactName(c, os)} kini Langganan! Hadiah: +1 ${BOOSTER_NAME(c.gift)}`);
+            }
+            winText = `“${o.win}” — ${contactName(c, os)}`;
+            comment = o.reviews[review];
+        }
+        saveOS(os);
+        save("coins", getCoins() + coins);
+        sfx.win();
+        const starsTxt = "★".repeat(review) + "☆".repeat(5 - review);
+        setTimeout(() => showResult({
+            icon: recipe.dish, title: "Pesanan Terkirim! 🛵", stars: st, text: winText,
+            note: [`Ulasan ${starsTxt} “${comment}”`, ...notes].join(" · "),
+            score: { base, bonus, total: score }, coins,
+            secondary: "Ulangi", onSecondary: () => beginOrder(recipe, ctx),
+            primary: "Kembali ke Chat", onPrimary: () => backToPhone(ctx),
+            tertiary: "🏠 Menu Utama", onTertiary: () => showScreen("home"),
+        }), 400);
+        if (prizeAfterResult) setTimeout(() => showPrizeSpin(prizeAfterResult), 1300);
+    }
+    function loseOrder(reason) {
+        if (ended) return;
+        stopGame();
+        sfx.lose();
+        const ctx = levelCtx;
+        const why = reason === "forbid" ? `Kebanyakan ${ING[recipe.forbid.type].name.toLowerCase()}! Pesanannya jadi tidak sesuai permintaan.`
+            : reason === "time" ? "Waktunya habis sebelum pesanan siap." : "Langkahnya habis sebelum pesanan siap.";
+        const bram = ctx.cid === "bram";
+        setTimeout(() => showResult({
+            icon: reason === "forbid" ? "🥵" : reason === "time" ? "⏰" : "😢",
+            title: "Pesanan Gagal…",
+            text: bram ? "“Hah! Dapurmu belum siap menghadapiku.” — Chef Bram" : `“Nggak apa-apa, coba lagi ya 🙏” — ${ctx.cust}`,
+            note: why, score: { base: score },
+            secondary: "Kembali ke Chat", onSecondary: () => backToPhone(ctx),
+            primary: "Coba Lagi", onPrimary: () => beginOrder(recipe, ctx),
+        }), 400);
+    }
+
+    // ---------- Antarmuka HP ----------
+    let paTab = "chat", paContact = null, paPending = null, paReplay = null, paAnim = 0, paFrom = "home", paDaily = null;
+    const paView = $("paView");
+    function openPhone(view = "list", arg = null) {
+        const act = document.querySelector(".screen.active");
+        if (act && (act.id === "home" || act.id === "map")) paFrom = act.id;
+        $("paClock").textContent = new Date().toTimeString().slice(0, 5).replace(":", ".");
+        $("phone").classList.add("show");
+        if (view === "chat") renderChat(arg, true);
+        else if (view === "daily") renderDaily(arg);
+        else renderList(paTab);
+    }
+    function closePhone() { paAnim++; $("phone").classList.remove("show"); refreshPhoneBadges(); }
+    function backToPhone(ctx) {
+        showScreen(paFrom || "home");
+        paPending = null; paReplay = null;
+        if (ctx.daily !== undefined) { paTab = "harian"; openPhone("list"); }
+        else openPhone("chat", ctx.cid);
+    }
+    const bubble = (side, html, t = "") => `<div class="pa-bub ${side}">${html}${t ? `<span class="tm">${t}</span>` : ""}</div>`;
+    const sysMsg = t => `<div class="pa-sys">${t}</div>`;
+    function headHtml(os, tab) {
+        const r = ratingOf(os), unread = unreadCount(os), sv = streakView(os);
+        return `<div class="pa-head"><h3>🛵 Pesan Antar</h3><small>Warung Nenek Sri · ${r ? `💬 ${r.avg} (${r.count} ulasan)` : "💬 Belum ada ulasan"}</small>
+            <div class="pa-tabs"><button data-act="tab" data-tab="chat" class="${tab === "chat" ? "on" : ""}">💬 Chat${unread ? ` (${unread})` : ""}</button>
+            <button data-act="tab" data-tab="harian" class="${tab === "harian" ? "on" : ""}">📅 Harian${hpUnlocked() && !sv.doneToday ? ` <span class="pa-dot">Bonus!</span>` : sv.c ? ` · 🔥${sv.c}` : ""}</button></div></div>`;
+    }
+    const emptyHtml = (title, text) => `<div class="pa-empty"><div class="big">📭</div><b>${title}</b><p>${text}</p></div>`;
+    function renderList(tab) {
+        paAnim++; paTab = tab; paContact = null;
+        const os = getOS();
+        let body = "";
+        if (!hpUnlocked()) body = emptyHtml("Belum ada pesanan", "Pesanan online akan masuk di sini begitu warungmu mulai dikenal pelanggan.");
+        else if (tab === "chat") {
+            const cs = activeContacts(os);
+            if (!cs.length) body = emptyHtml("Belum ada pesanan", "Pesanan online akan masuk di sini begitu warungmu mulai dikenal pelanggan.");
+            else {
+                const rows = cs.map(c => {
+                    const vis = visibleOrders(c, os), unread = vis.filter(o => !os.seen[o.id]).length;
+                    const last = vis[vis.length - 1], doneAll = c.orders.every(o => os.done[o.id]);
+                    const preview = os.done[last.id] ? `Ulasan ${os.done[last.id].best}/5 · “${last.reviews[os.done[last.id].best]}”` : last.intro[last.intro.length - 1];
+                    return { c, unread, html: `<button class="pa-ct" data-act="open" data-c="${c.id}"><div class="pa-av">${contactAvatar(c, os)}</div>
+                        <div class="mid"><b>${contactName(c, os)}${doneAll ? ` <span class="pa-tag">⭐ Langganan</span>` : ""}</b><p>${preview}</p></div>
+                        <div class="rt">${unread ? `<span class="badge">${unread}</span>` : os.done[last.id] ? "✓" : "•"}</div></button>` };
+                });
+                rows.sort((a, b) => b.unread - a.unread);
+                body = `<div class="pa-list">${rows.map(r => r.html).join("")}</div>`;
+            }
+        } else {
+            const today = dateKey();
+            if (os.daily.date !== today) { os.daily = { date: today, res: [null, null, null] }; saveOS(os); }
+            const sv = streakView(os), list = dailyOrders(today);
+            const days = [1, 2, 3, 4, 5, 6, 7].map(d => {
+                const done = d <= sv.c, isToday = d === sv.todaySlot && !sv.doneToday;
+                const label = `🪙${STREAK_REWARD[d - 1]}`;
+                return `<div class="pa-day${done ? " done" : ""}${isToday ? " today" : ""}">H${d}<b>${done ? "✓" : label}</b></div>`;
+            }).join("");
+            const ms = msToMidnight(), hh = Math.floor(ms / 3600000), mm = Math.floor(ms % 3600000 / 60000);
+            const nextReward = STREAK_REWARD[sv.todaySlot - 1];
+            const doneCount = os.daily.res.filter(x => x).length;
+            body = `<div class="pa-list harian"><div class="pa-streak"><h5>🔥 Bonus masuk harian${sv.c ? ` · ${sv.c} hari beruntun` : ""}<span>Ambil bonus koin setiap hari. Terlewat sehari, kembali ke H1.</span></h5><div class="pa-days">${days}</div>
+                ${sv.doneToday ? `<div class="pa-claimed">✓ Bonus hari ini sudah diambil · kembali besok</div>` : `<button class="btn green small pa-claim" data-act="claim">🎁 Ambil bonus hari ini · 🪙 ${nextReward}</button>`}</div>
+                <div class="pa-prize${os.daily.prize ? " done" : ""}"><span>🎁</span><div><b>${os.daily.prize ? "Hadiah power-up hari ini sudah didapat" : "Selesaikan ketiga pesanan harian"}</b><small>${os.daily.prize ? "Kembali besok untuk pesanan baru" : `Hadiah: 1 power-up acak · ${doneCount}/3 selesai`}</small></div></div>
+                ${list.map(d => {
+                    const res = os.daily.res[d.i];
+                    return `<div class="pa-daily${res ? " done" : ""}"><div class="pa-av">${d.avatar}</div><div class="mid"><b>${d.cust} · ${d.title}</b>
+                        <p><span class="pa-k">${d.icon} ${d.kind}</span> ${res ? `${"★".repeat(res)}${"☆".repeat(5 - res)}` : `🪙 ${d.coins}`}</p></div>
+                        <button class="btn ${res ? "ghost" : "primary"} small" data-act="daily" data-i="${d.i}">${res ? "Ulang" : "Ambil"}</button></div>`;
+                }).join("")}
+                <div class="pa-foot">Pesanan harian baru dalam ${hh} jam ${mm} menit</div></div>`;
+        }
+        paView.innerHTML = headHtml(os, tab) + body;
+    }
+    function chalCard(def, opt, coins, replay, startAct) {
+        return `<div class="pa-chal"><span class="kind">${opt.icon} ${opt.kind.toUpperCase()}</span><h4>${def.dish} ${def.name}</h4>
+            <div class="pa-chips">${goalChips(def)}</div>
+            <div class="meta">${def.time ? `<span>⏱️ ${def.time} detik</span>` : ""}<span>👣 ${def.moves} langkah</span></div>
+            <p>${rulesText(def)}</p><p class="rw">Hadiah: 🪙 ${coins}${replay ? " (pesan ulang)" : ""} + ulasan</p>
+            <button class="btn primary" data-act="${startAct}">Mulai Masak 🔥</button><button class="pa-link" data-act="rechoose">Ganti pilihan</button></div>`;
+    }
+    function choicesHtml(o, replay) {
+        return `<div class="pa-choices"><div class="hint">${replay ? "PESAN LAGI · PILIH BALASANMU" : "PILIH BALASANMU"}</div>` +
+            o.options.map(op => `<button class="pa-choice" data-act="choose" data-o="${o.id}" data-k="${op.key}"><span class="e">${op.icon}</span>
+                <div><b>“${op.reply}”</b><span>${op.kind} · ${op.desc}</span></div><span class="rw">🪙 ${replay ? Math.round(op.coins / 2) : op.coins}</span></button>`).join("") +
+            (replay ? `<button class="pa-link" data-act="cancelReplay">Batal</button>` : "") + `</div>`;
+    }
+    function orderCard(o) {
+        const def = o.options[0].level, g = def.rounds ? def.rounds[0] : def.goals;
+        const chips = Object.keys(g).filter(k => /^\d+$/.test(k)).map(k => `<span class="pa-chip">${ico(+k)}${nameOf(+k)}</span>`).join("");
+        return `<div class="pa-order"><small>PESANAN</small><div class="ttl">${o.dish} ${o.title}</div><div class="pa-chips">${chips}</div></div>`;
+    }
+    function renderChat(cid, animate = false) {
+        const token = ++paAnim;
+        paContact = cid;
+        const os = getOS(), c = contactById(cid), vis = visibleOrders(c, os);
+        const msgs = [];
+        let pending = null, toAnimate = null;
+        vis.forEach(o => {
+            const rec = os.done[o.id];
+            if (!rec && !os.seen[o.id] && animate) { toAnimate = o; pending = o; return; }
+            o.intro.forEach(t => msgs.push(bubble("l", t)));
+            if (rec) {
+                const op = o.options.find(x => x.key === rec.choice) || o.options[0];
+                msgs.push(bubble("r", op.reply), bubble("l", op.after), bubble("r", "Pesanan sudah diantar! 🛵"), bubble("l", o.win));
+                msgs.push(`<div class="pa-review"><small>ULASAN ${contactName(c, os).toUpperCase()}</small><div class="st">${"★".repeat(rec.best)}<span class="off">${"★".repeat(5 - rec.best)}</span></div>
+                    <q>${o.reviews[rec.best]}</q><button class="btn secondary small" data-act="replay" data-o="${o.id}">🔁 Pesan lagi (koin ½)</button></div>`);
+            } else { msgs.push(orderCard(o)); pending = o; }
+        });
+        if (c.orders.every(o => os.done[o.id])) msgs.push(sysMsg(`⭐ ${contactName(c, os)} adalah Langganan warungmu`));
+        // Pilihan yang sedang dibuka (baru dipilih)
+        let footer = "";
+        if (paPending && paPending.cid === cid) {
+            const { o, op, replay } = paPending;
+            const def = orderLevel({ dish: o.dish, title: o.title, cust: contactName(c, os) }, op);
+            msgs.push(bubble("r", op.reply), bubble("l", op.after), chalCard(def, op, replay ? Math.round(op.coins / 2) : op.coins, replay, "start"));
+        } else if (paReplay && c.orders.some(o => o.id === paReplay)) {
+            footer = choicesHtml(c.orders.find(o => o.id === paReplay), true);
+        } else if (pending && !toAnimate) footer = choicesHtml(pending, false);
+        else if (!pending) footer = `<div class="pa-wait">${c.orders.every(o => os.done[o.id]) ? "Semua pesanan selesai ⭐ Tekan “Pesan lagi” untuk mengulang." : "Menunggu pesanan berikutnya…"}</div>`;
+        paView.innerHTML = `<div class="pa-chathead"><button data-act="back" aria-label="Kembali">←</button><div class="pa-av">${contactAvatar(c, os)}</div><div><b>${contactName(c, os)}</b><small>🟢 online</small></div></div>
+            <div class="pa-chat" id="paChat">${msgs.join("")}</div>${footer}`;
+        const box = $("paChat");
+        box.scrollTop = box.scrollHeight;
+        if (toAnimate) {
+            os.seen[toAnimate.id] = true; saveOS(os); refreshPhoneBadges();
+            const o = toAnimate;
+            (async () => {
+                for (const t of o.intro) {
+                    if (token !== paAnim) return;
+                    box.insertAdjacentHTML("beforeend", `<div class="pa-typing"><i></i><i></i><i></i></div>`);
+                    box.scrollTop = box.scrollHeight;
+                    await sleep(750);
+                    if (token !== paAnim) return;
+                    box.querySelector(".pa-typing").remove();
+                    box.insertAdjacentHTML("beforeend", bubble("l", t));
+                    box.scrollTop = box.scrollHeight;
+                    sfx.tick();
+                    await sleep(250);
+                }
+                if (token !== paAnim) return;
+                box.insertAdjacentHTML("beforeend", orderCard(o));
+                paView.insertAdjacentHTML("beforeend", choicesHtml(o, false));
+                box.scrollTop = box.scrollHeight;
+            })();
+        } else vis.forEach(o => { if (!os.seen[o.id]) os.seen[o.id] = true; }), saveOS(os), refreshPhoneBadges();
+    }
+    function renderDaily(i) {
+        paAnim++; paDaily = i;
+        const os = getOS(), d = dailyOrders(dateKey())[i], res = os.daily.res[i];
+        const def = orderLevel({ dish: d.dish, title: d.title, cust: d.cust }, d);
+        paView.innerHTML = `<div class="pa-chathead"><button data-act="backHarian" aria-label="Kembali">←</button><div class="pa-av">${d.avatar}</div><div><b>${d.cust}</b><small>📅 Pesanan harian</small></div></div>
+            <div class="pa-chat">${bubble("l", d.msg)}${chalCard(def, d, res ? Math.round(d.coins / 2) : d.coins, !!res, "startDaily").replace('<button class="pa-link" data-act="rechoose">Ganti pilihan</button>', "")}</div>`;
+    }
+    paView.addEventListener("click", e => {
+        const b = e.target.closest("[data-act]");
+        if (!b) return;
+        const act = b.dataset.act;
+        sfx.tick();
+        if (act === "tab") { paPending = null; paReplay = null; renderList(b.dataset.tab); }
+        else if (act === "open") { paPending = null; paReplay = null; renderChat(b.dataset.c, true); }
+        else if (act === "back") { paPending = null; paReplay = null; renderList("chat"); }
+        else if (act === "backHarian") renderList("harian");
+        else if (act === "choose") {
+            const { c, o } = findOrder(b.dataset.o), op = o.options.find(x => x.key === b.dataset.k);
+            const os = getOS();
+            if (op.reveal && c.id === "bram") { os.revealed.bram = true; saveOS(os); }
+            paPending = { cid: c.id, o, op, replay: !!os.done[o.id] };
+            paReplay = null;
+            renderChat(c.id);
+        }
+        else if (act === "rechoose") { const p = paPending; paPending = null; if (p && p.replay) paReplay = p.o.id; renderChat(paContact); }
+        else if (act === "replay") { paReplay = b.dataset.o; paPending = null; renderChat(paContact); }
+        else if (act === "cancelReplay") { paReplay = null; renderChat(paContact); }
+        else if (act === "start" && paPending) {
+            const { cid, o, op } = paPending, c = contactById(cid), os = getOS();
+            const def = orderLevel({ dish: o.dish, title: o.title, cust: contactName(c, os) }, op);
+            const ctx = { kind: "order", cid, oid: o.id, opt: op.key, coins: op.coins, cust: contactName(c, os) };
+            paPending = null;
+            closePhone();
+            beginOrder(def, ctx);
+        }
+        else if (act === "daily") renderDaily(+b.dataset.i);
+        else if (act === "claim") claimDailyBonus();
+        else if (act === "startDaily") {
+            const d = dailyOrders(dateKey())[paDaily];
+            const def = orderLevel({ dish: d.dish, title: d.title, cust: d.cust }, d);
+            closePhone();
+            beginOrder(def, { kind: "order", daily: paDaily, coins: d.coins, cust: d.cust });
+        }
+    });
+    $("paClose").addEventListener("click", closePhone);
+    $("phone").addEventListener("click", e => { if (e.target.id === "phone") closePhone(); });
+    $("btnPhoneHome").addEventListener("click", () => { paTab = "chat"; openPhone(); });
+    $("btnPhoneMap").addEventListener("click", () => { paTab = "chat"; openPhone(); });
+
+    // =====================================================================
+    // KUNCI SCROLL HALAMAN SAAT OVERLAY TERBUKA
+    // =====================================================================
+    // Halaman di belakang tidak ikut ter-scroll ketika HP, pengaturan, hasil, atau dialog terbuka
+    const syncScrollLock = () => document.documentElement.classList.toggle("scroll-lock", !!document.querySelector(".overlay.show"));
+    new MutationObserver(syncScrollLock).observe(document.getElementById("app"), { attributes: true, attributeFilter: ["class"], subtree: true });
+    // Roda mouse di atas overlay tidak diteruskan ke halaman, kecuali di area yang memang bisa di-scroll
+    document.addEventListener("wheel", e => {
+        const ov = e.target.closest && e.target.closest(".overlay.show");
+        if (!ov) return;
+        let el = e.target;
+        while (el && el !== ov) {
+            const st = getComputedStyle(el);
+            if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight) return; // biarkan area ini scroll sendiri
+            el = el.parentElement;
+        }
+        e.preventDefault();
+    }, { passive: false });
+
+    // =====================================================================
     // TOMBOL
     // =====================================================================
     $("btnStory").addEventListener("click", enterStory);
@@ -1981,9 +2720,11 @@ function DapurNenek() {
     // Keluar dari permainan: minta konfirmasi agar progres tidak hilang karena salah klik
     function doQuit() {
         stopGame(); session++;
+        const ctx = levelCtx;
         const back = mode === "story" ? "map" : "home";
         mode = null;
         setPaused(false);
+        if (ctx.kind === "order") { backToPhone(ctx); return; } // pesanan: kembali ke chat di HP
         showScreen(back);
     }
     function askQuit() {
@@ -1995,7 +2736,9 @@ function DapurNenek() {
         const story = mode === "story";
         showModal({
             icon: "🚪", title: "Keluar dari dapur?",
-            text: story
+            text: levelCtx.kind === "order"
+                ? `Pesanan "${recipe.name}" belum dikirim dan akan dibatalkan. Kamu bisa mengambilnya lagi dari chat.`
+                : story
                 ? `Progres "${recipe.name}" akan hilang, dan power-up yang sudah dipakai tidak kembali. Bintang dan koin dari resep lain tetap aman.`
                 : "Permainan Endless ini akan berakhir tanpa skor dan tanpa koin, dan power-up yang sudah dipakai tidak kembali.",
             actions: [

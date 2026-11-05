@@ -25,7 +25,10 @@
           <p class="tagline">Warung warisan nenek hampir tutup sejak Resto Megah buka di seberang jalan. Masak menu demi menu dan kembalikan kejayaannya!</p>
           <div class="home-row">
             <div class="coin-pill">🪙 <b id="homeCoins">0</b> koin</div>
-            <button id="btnShopHome" class="btn green small">🛒 Toko Bumbu</button>
+            <div class="home-btns">
+              <button id="btnShopHome" class="btn green small">🛒 Toko Bumbu</button>
+              <button id="btnPhoneHome" class="btn primary small phone-btn">📱 Pesan Antar<span id="phoneBadgeHome" class="badge" hidden>0</span></button>
+            </div>
           </div>
           <div class="dash"></div>
           <button id="btnStory" class="btn primary big">📖 Mode Cerita</button>
@@ -39,6 +42,7 @@
           <div class="home-tools">
             <button id="btnSettings" class="btn ghost small">⚙️ Pengaturan</button>
             <button id="btnHowTo" class="btn ghost small">📖 Cara Bermain</button>
+            <button class="btn ghost small" data-go="credits">🎬 Kredit</button>
           </div>
         </div>
       </section>
@@ -53,8 +57,9 @@
               <h2 class="page-title">Buku Resep Nenek</h2>
             </div>
             <div class="mh-right">
-              <div class="rank"><b id="rankTitle"></b><span>⭐ <span id="totalStars">0</span>/30 · 🪙 <span id="mapCoins">0</span></span></div>
+              <div class="rank"><b id="rankTitle"></b><span>⭐ <span id="totalStars">0</span>/30 · 🪙 <span id="mapCoins">0</span></span><span id="mapRating" class="rv" hidden></span></div>
               <button id="btnShopMap" class="btn green small">🛒 Toko Bumbu</button>
+              <button id="btnPhoneMap" class="btn primary small phone-btn">📱 Pesan Antar<span id="phoneBadgeMap" class="badge" hidden>0</span></button>
             </div>
           </div>
           <div id="recipeList"></div>
@@ -149,6 +154,47 @@
         </div>
       </section>
 
+      <!-- Kredit -->
+      <section id="credits" class="screen">
+        <div class="credits-card">
+          <div class="cr-head">
+            <small>STRUK KREDIT</small>
+            <div id="crIcons" class="cr-icons"></div>
+            <h2>Dapur Nenek Sri</h2>
+            <span class="cr-ver">Versi 1.1.0 · 2026</span>
+          </div>
+
+          <div class="cr-block">
+            <h3>Dibuat oleh</h3>
+            <p class="cr-big">Nabila Shafa Rahayu</p>
+            <p>NRP 5025241150 · Teknik Informatika<br>Institut Teknologi Sepuluh Nopember</p>
+            <p class="cr-role">Desain game · Pemrograman · Desain visual & ikon · Cerita</p>
+          </div>
+
+          <div class="cr-block">
+            <h3>Mata Kuliah</h3>
+            <p class="cr-big">Teknik Pengembangan Game 2026</p>
+            <p>Evaluasi Tengah Semester (ETS)</p>
+          </div>
+
+          <div class="cr-block">
+            <h3>Aset &amp; Sumber</h3>
+            <table class="cr-table">
+              <tr><td>Ikon bahan, power-up &amp; penghalang</td><td>Dibuat sendiri (SVG)</td></tr>
+              <tr><td>Efek suara</td><td>Dibuat dengan Web Audio API</td></tr>
+              <tr><td>Musik menu</td><td id="crMusic">"Cute Baking" oleh Acoustic Girl<br><small>℗ Musicite Records</small></td></tr>
+              <tr><td>Font</td><td>Fredoka &amp; Nunito, Google Fonts<br><small>SIL Open Font License</small></td></tr>
+              <tr><td>Karakter &amp; hidangan</td><td>Emoji sistem (Unicode)</td></tr>
+              <tr><td>Prototipe awal</td><td>Candy Crush HTML/CSS/JS<br><small>oleh he-is-talha (GitHub)</small></td></tr>
+              <tr><td>Aplikasi desktop</td><td>Electron</td></tr>
+            </table>
+          </div>
+
+          <p class="cr-thanks">Terima kasih sudah bermain! 🍲</p>
+          <button class="btn primary" data-go="home">← Kembali ke Menu</button>
+        </div>
+      </section>
+
       <!-- Hasil -->
       <div id="result" class="overlay">
         <div class="result-card">
@@ -191,6 +237,12 @@
             <input type="range" id="setSfx" min="0" max="100" step="5">
             <span id="setSfxVal" class="set-val"></span>
           </div>
+          <div class="set-row stack">
+            <span>🔠 Ukuran teks</span>
+            <div class="seg full" id="setFont">
+              <button data-fs="0.9">Kecil</button><button data-fs="1">Normal</button><button data-fs="1.15">Besar</button><button data-fs="1.3">Sangat besar</button>
+            </div>
+          </div>
           <div class="set-row">
             <span>⚡ Kecepatan animasi</span>
             <div class="seg" id="setSpeed">
@@ -228,6 +280,30 @@
             <button id="howNext" class="btn primary small">Berikutnya →</button>
           </div>
           <button id="howClose" class="btn ghost small">Tutup</button>
+        </div>
+      </div>
+
+      <!-- HP warung: aplikasi Pesan Antar -->
+      <div id="phone" class="overlay">
+        <div class="pa-phone">
+          <div class="pa-scr">
+            <div class="pa-notch"></div>
+            <div class="pa-sbar"><span id="paClock">09.41</span><span>▂▄▆ 🔋</span></div>
+            <div id="paView" class="pa-view"></div>
+          </div>
+          <button id="paClose" class="pa-close" aria-label="Tutup HP">✕</button>
+        </div>
+      </div>
+
+      <!-- Hadiah power-up acak (carousel) -->
+      <div id="spin" class="overlay">
+        <div class="result-card spin-card">
+          <div class="res-icon">🎁</div>
+          <h2>Semua Pesanan Harian Selesai!</h2>
+          <p class="spin-sub">Hadiahmu: 1 power-up acak</p>
+          <div class="spin-window"><div id="spinStrip" class="spin-strip"></div><div class="spin-pointer"></div></div>
+          <p id="spinResult" class="spin-result"></p>
+          <button id="spinOk" class="btn primary" disabled>Ambil Hadiah</button>
         </div>
       </div>
 
